@@ -454,4 +454,107 @@ instalasi jenkins berhasil
 
 ## install monitoring app
 
-# install node exporter
+### install node exporter
+
+buat ansible playbook
+```yaml
+---
+- hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: deploy Docker Compose
+      community.docker.docker_compose:
+        project_name: node_exporter
+        definition:
+          version: '3.7'
+          services:
+            node_exporter:
+              container_name: node_exporter
+              image: bitnami/node-exporter:latest
+              stdin_open: true
+              restart: unless-stopped
+              ports:
+                - 9100:9100
+```
+![](.Readme_images/2e356e28.png)
+
+jalankan ansible playbook
+
+```yaml
+ansible-playbook nama_file.yaml
+```
+![](.Readme_images/56b6f091.png)
+
+### install prometheus dan grafana
+
+buat ansible playbook
+
+```yaml
+---
+- hosts: monitoring
+  become: true
+  gather_facts: true
+  tasks:
+    - name: buat folder konfigurasi_prometheus
+      file:
+        path: /home/{{ansible_user}}/konfigurasi_prometheus
+        state: directory
+        owner: "{{ansible_user}}"
+
+    - name: buat file konfigurasi prometheus
+      copy:
+        dest: /home/{{ansible_user}}/konfigurasi_prometheus/prometheus.yml
+        content: |
+            global:
+              scrape_interval: 5s
+              evaluation_interval: 5s
+            
+            scrape_configs:
+              - job_name: prometheus
+                static_configs:
+                  - targets: [10.116.106.150:9100,10.116.106.170:9100,10.116.106.219:9100]
+              - job_name: "Jenkins Job"
+                metrics_path: '/prometheus'
+                static_configs:
+                  - targets: [10.116.106.170:8123]
+
+    - name: deploy Docker Compose
+      community.docker.docker_compose:
+        project_name: prometheus_grafana
+        definition:
+          version: '3.7'
+          services:
+            prometheus:
+              container_name: prometheus
+              image: bitnami/prometheus:latest
+              stdin_open: true
+              restart: unless-stopped
+              ports:
+                - 9090:9090
+              volumes:
+                - /home/{{ansible_user}}/konfigurasi_prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+            grafana:
+              container_name: grafana
+              image: grafana/grafana:latest
+              stdin_open: true
+              restart: unless-stopped
+              ports:
+                - 3123:3000
+              volumes:
+                - grafana-storage:/etc/grafana/provisioning
+                - grafana-storage:/var/lib/grafana
+                - grafana-storage:/etc/grafana/config.ini
+          volumes:
+            grafana-storage:
+```
+
+![](.Readme_images/9c30d029.png)
+
+jalankan ansible playbook
+
+```yaml
+ansible-playbook nama_file.yaml
+```
+
+![](.Readme_images/9fc19cbb.png)
