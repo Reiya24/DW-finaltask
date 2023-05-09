@@ -158,3 +158,74 @@ integrasi backend dengan database berhasil berjalan
 ![](.Readme_images/c7f93684.png)
 
 ![](.Readme_images/1eba9d83.png)
+
+# setup for staging
+lakukan hal yang kurang lebih sama dengan production,
+namun dengan konfigurasi Dockerfile yang sedikit berbeda
+
+## frontend
+Dockerfile
+```yaml
+FROM node:12.16-alpine3.11 as build
+WORKDIR /home/app
+COPY . .
+RUN npm install
+
+FROM node:12.16-alpine3.11
+WORKDIR /home/app
+COPY --from=build /home/app /home/app
+EXPOSE 3000
+CMD ["npm","start"]
+``` 
+![](.Readme_images/d8e06fed.png)
+
+docker compose:
+![](.Readme_images/f1638d29.png)
+
+## database
+docker compose:
+```yaml
+version: '3.7'
+services:
+  database-staging:
+    image: postgres:alpine
+    container_name: database-staging
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=reiya
+      - POSTGRES_PASSWORD=reiya
+      - POSTGRES_DB=reiya
+    ports:
+      - '4400:5432'
+    volumes:
+      - ~/konfigurasi_posgres_staging:/var/lib/postgresql/data
+```
+![](.Readme_images/c9597110.png)
+
+## backend
+Dockerfile : 
+
+```yaml
+FROM golang:1.18-alpine as builder
+WORKDIR /home/app
+COPY . .
+RUN CGO_ENABLED=0 go build
+
+FROM gcr.io/distroless/cc-debian11
+WORKDIR /home/app
+COPY --from=builder /home/app/dumbmerch /home/app
+COPY --from=builder /home/app/.env /home/app
+EXPOSE 5000
+CMD ["/home/app/dumbmerch"]
+```
+![](.Readme_images/4e4d4be9.png)
+
+
+docker compose : 
+![](.Readme_images/0472c050.png)
+
+![](.Readme_images/b3b1d43a.png)
+
+![](.Readme_images/da75f26d.png)
+
+# CICD
