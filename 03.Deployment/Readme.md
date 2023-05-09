@@ -228,4 +228,381 @@ docker compose :
 
 ![](.Readme_images/da75f26d.png)
 
-# CICD
+# CI CD menggunakan jenkins
+
+## instalasi jenkins
+
+copy password di
+```yaml
+docker logs jenkins
+```
+![](.Readme_images/28803a54.png)
+
+paste ke website 
+
+![](.Readme_images/8b1a139a.png)
+
+pilih select plugin to install 
+
+![](.Readme_images/a1134566.png)
+
+pilih plugin yang diperlukan 
+![](.Readme_images/7f884014.png)
+
+tunggu sampai proses instalasi selesai 
+
+![](.Readme_images/5a75e793.png)
+
+masukan form 
+![](.Readme_images/213a69ea.png)
+
+setup domain 
+![](.Readme_images/a1f465bc.png)
+
+## setup credentials di jenkins
+pada dashboard jenkins, pergi ke manage 
+jenkins > manage credentials > global > 
+add credentials 
+![](.Readme_images/691326ae.png)
+
+masukan private key 
+![](.Readme_images/1bba2f6e.png)
+
+## setup credentials di github
+pada website github, pergi ke setting >
+SSH and GPG keys > new SSH key, masukan public key 
+
+![](.Readme_images/bafd1739.png)
+
+SSH key berhasil ditambahkan 
+![](.Readme_images/5b003e5e.png)
+
+## setup agar bisa terkoneksi dengan github di koneksi pertama
+pilih manage jenkins > configure global security 
+![](.Readme_images/7b074937.png)
+
+scroll ke bagian paling bawah, accept first connection 
+![](.Readme_images/4b6cf3d5.png)
+
+## Setup notifikasi dengan slack
+install plugin slack notification, dashboard > manage jenkins, manage plugins 
+![](.Readme_images/c72ffdb6.png)
+
+pada available plugins, cari plugin slack notification, pilih 
+download now and isntall after restart 
+![](.Readme_images/c0e2476b.png)
+
+tunggu sampai proses instalasi berhasil 
+![](.Readme_images/affb719a.png)
+
+buka halaman https://my.slack.com/services/new/jenkins-ci,
+lalu pilih workspace
+
+pilih channel 
+![](.Readme_images/a8055be7.png)
+
+setelah itu scroll kebawah, kita akan menemukan team subdomain, dan 
+integration token credential ID 
+
+![](.Readme_images/6e6fd5ed.png)
+
+copy integration token credential ID, lalu tambahkan di credential
+jenkins, pada menu kind, pilih secret text 
+![](.Readme_images/319a634f.png)
+
+setelah itu, pada dashboard jenkins > manage jenkins > configure 
+system, cari menu slack, masukan form yang diperlukan, untuk 
+workspace masukan team subdomain tadi, disarankan untuk test 
+connection terlebih dahulu sebelum save 
+![](.Readme_images/f4f2a7d4.png)
+
+## membuat pipeline
+
+klik create job, pilih pipeline job 
+
+![](.Readme_images/6d5fef5c.png)
+
+ceklis github hook trigger for scm polling 
+
+![](.Readme_images/71bef397.png)
+
+definition, pilih git, masukan repository, ssh ke y, dsb 
+
+![](.Readme_images/44d73ba3.png)
+
+matikan lightweight checkout
+
+pada direktori frontend, buat Jenkinsfile
+
+```groovy
+pipeline {
+    agent any
+
+    environment{
+        def branch = "production"
+        def nama_repository = "origin"
+        def directory = "~/fe-dumbmerch"
+        def credential = 'id_rsa'
+        def server = 'reiya24@10.116.106.150'
+        def docker_image = 'reiya24/dumbmerch-frontend-production'
+        def nama_container = 'frontend-production'
+    }
+
+    options {
+        disableConcurrentBuilds()
+        timeout(time: 40, unit: 'MINUTES')
+    }
+
+    stages {
+
+        stage('kirim notifikasi ke slack') {
+            steps {
+                slackSend(message: "mulai job baru : ${env.JOB_NAME} ${env.BUILD_NUMBER} (<${env.BUILD_URL}|Open>)")
+            }
+        }
+
+        stage('pull repository dari github ') {
+            steps {
+                sshagent([credential]){
+                    sh"""
+                    ssh -o StrictHostKeyChecking=no ${server} << EOF
+                    cd ${directory}
+                    git pull ${nama_repository} ${branch}
+                    exit
+                    EOF"""
+                }
+            }
+        }
+
+        stage('hapus container') {
+            steps {
+                sshagent([credential]){
+                    sh"""
+                    ssh -o StrictHostKeyChecking=no ${server} << EOF
+                    docker container stop ${nama_container}
+                    docker container rm ${nama_container}
+                    exit
+                    EOF"""
+                }
+            }
+        }
+
+        stage('build image frontend') {
+            steps {
+                sshagent([credential]){
+                    sh"""ssh -o StrictHostKeyChecking=no ${server} << EOF
+                    cd ${directory}
+                    docker build -t ${docker_image}:latest .
+                    exit
+                    EOF"""
+                }
+            }
+        }
+
+        stage('jalankan docker compose') {
+            steps {
+                sshagent([credential]){
+                    sh"""ssh -o StrictHostKeyChecking=no ${server} << EOF
+                    cd ${directory}
+                    docker compose up -d
+                    exit
+                    EOF
+                    """
+                }
+            }
+        }
+        
+        stage('push image ke dockerhub') {
+            steps {
+                sshagent([credential]){
+                    sh"""
+                    ssh -o StrictHostKeyChecking=no ${server} << EOF
+                    cd ${directory}
+                    docker image push ${docker_image}:latest
+                    exit
+                    EOF"""
+                }
+            }
+        }
+    }
+
+    post {
+
+        aborted {
+            slackSend(message: "build digagalkan secara manual : ${env.JOB_NAME} ${env.BUILD_NUMBER} (<${env.BUILD_URL}|Open>)")
+        }
+        failure {
+            slackSend(message: "build failed : ${env.JOB_NAME} ${env.BUILD_NUMBER} (<${env.BUILD_URL}|Open>)")
+        }
+
+        success {
+            slackSend(message: "build success : ${env.JOB_NAME} ${env.BUILD_NUMBER} (<${env.BUILD_URL}|Open>)")
+        }
+        
+    }
+}
+```
+
+push ke github repository
+![](.Readme_images/529ea348.png)
+
+jenkins akan membuild secara otomtatis 
+![](.Readme_images/557e29a2.png)
+
+notifikasi berhasil
+![](.Readme_images/a1a393a6.png)
+
+lakukan hal yang sama untuk backend
+![](.Readme_images/cd59c54a.png)
+
+![](.Readme_images/1af851a3.png)
+
+## multibranch pipeline
+
+install plugin multibranch scan webhook trigger 
+![](.Readme_images/c4d3557d.png)
+
+pilih new item
+
+masukan nama branch, pilih multibranch pipeline
+![](.Readme_images/24796c37.png)
+
+setup branch source
+![](.Readme_images/48ec6f2b.png)
+
+![](.Readme_images/5a199632.png)
+
+ceklis scan by webhook 
+![](.Readme_images/96b63eaa.png)
+
+jenkins akan mengscan branch yang memiliki Jenkinsfile 
+![](.Readme_images/f44c9e12.png)
+
+```groovy
+pipeline {
+    agent any
+
+    environment{
+        def branch = "production"
+        def nama_repository = "origin"
+        def directory = "~/fe-dumbmerch"
+        def credential = 'id_rsa'
+        def server = 'reiya24@10.116.106.150'
+        def docker_image = 'reiya24/dumbmerch-frontend-production'
+        def nama_container = 'frontend-production'
+    }
+
+    options {
+        disableConcurrentBuilds()
+        timeout(time: 40, unit: 'MINUTES')
+    }
+
+    stages {
+
+        stage('kirim notifikasi ke slack') {
+            steps {
+                slackSend(message: "mulai job baru : ${env.JOB_NAME} ${env.BUILD_NUMBER} (<${env.BUILD_URL}|Open>)")
+            }
+        }
+
+        stage('pull repository dari github ') {
+            steps {
+                sshagent([credential]){
+                    sh"""
+                    ssh -o StrictHostKeyChecking=no ${server} << EOF
+                    cd ${directory}
+                    git checkout ${branch}
+                    git pull ${nama_repository} ${branch}
+                    exit
+                    EOF"""
+                }
+            }
+        }
+
+        stage('hapus container') {
+            steps {
+                sshagent([credential]){
+                    sh"""
+                    ssh -o StrictHostKeyChecking=no ${server} << EOF
+                    docker container stop ${nama_container}
+                    docker container rm ${nama_container}
+                    exit
+                    EOF"""
+                }
+            }
+        }
+
+        stage('build image frontend') {
+            steps {
+                sshagent([credential]){
+                    sh"""ssh -o StrictHostKeyChecking=no ${server} << EOF
+                    cd ${directory}
+                    docker build -t ${docker_image}:latest .
+                    exit
+                    EOF"""
+                }
+            }
+        }
+
+        stage('jalankan docker compose') {
+            steps {
+                sshagent([credential]){
+                    sh"""ssh -o StrictHostKeyChecking=no ${server} << EOF
+                    cd ${directory}
+                    docker compose up -d
+                    exit
+                    EOF
+                    """
+                }
+            }
+        }
+        
+        stage('push image ke dockerhub') {
+            steps {
+                sshagent([credential]){
+                    sh"""
+                    ssh -o StrictHostKeyChecking=no ${server} << EOF
+                    cd ${directory}
+                    docker image push ${docker_image}:latest
+                    exit
+                    EOF"""
+                }
+            }
+        }
+    }
+
+    post {
+
+        aborted {
+            slackSend(message: "build digagalkan secara manual : ${env.JOB_NAME} ${env.BUILD_NUMBER} (<${env.BUILD_URL}|Open>)")
+        }
+        failure {
+            slackSend(message: "build failed : ${env.JOB_NAME} ${env.BUILD_NUMBER} (<${env.BUILD_URL}|Open>)")
+        }
+
+        success {
+            slackSend(message: "build success : ${env.JOB_NAME} ${env.BUILD_NUMBER} (<${env.BUILD_URL}|Open>)")
+        }
+        
+    }
+}
+```
+![](.Readme_images/cfbf0705.png)
+
+## setup github webhook
+
+pada repository github > pilih setting > webhook, masukan
+```groovy
+https://jenkins.reiya.my.id/multibranch-webhook-trigger/invoke?token=backend
+```
+![](.Readme_images/f3bcfac1.png)
+
+push ke github 
+
+![](.Readme_images/9c01a688.png)
+
+trigger berhasil 
+
+![](.Readme_images/fed02b9a.png)
+![](.Readme_images/3a366f61.png)
+![](.Readme_images/1794a559.png)
